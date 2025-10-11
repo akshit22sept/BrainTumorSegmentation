@@ -146,7 +146,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 model = UNet3D(in_channels=1, out_channels=2, base_filters=8, dropout=0.2).to(device)
 
-checkpoint = torch.load(r"C:\Projects 2\BrainTumorSegmentation\Flairbased_2\model_epoch_45 (1).pt", map_location=device)
+checkpoint = torch.load("Flairbased_2\\model_epoch_45 (1).pt", map_location=device)
 state_dict = checkpoint["model_state_dict"]
 
 new_state_dict = OrderedDict()

@@ -1,0 +1,9 @@
+numpy
+streamlit
+nibabel
+plotly
+pillow
+matplotlib
+requests
+torch
+torchvision
