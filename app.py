@@ -9,6 +9,7 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 from typing import Tuple
 import time
+from skimage.transform import resize
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
@@ -306,7 +307,6 @@ if uploaded and run_button:
         status_text.text("📊 Computing metrics...")
         
         if pred.shape != mri.shape:
-            from skimage.transform import resize
             pred = resize(pred, mri.shape, order=0, preserve_range=True, anti_aliasing=False).astype(pred.dtype)
         
         st.session_state.mri_volume = mri
