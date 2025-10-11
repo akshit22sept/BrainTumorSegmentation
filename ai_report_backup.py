@@ -26,7 +26,7 @@ TUMOR ANALYSIS DATA:
 - Tumor volume in mL: {metrics.get('mask_volume_mL', 'Unknown')}
 - Tumor locations: {tumor_locations}
 - Severity classification: {severity}
-- Brain regions affected: Based on {tumor_locations}{key_slices_info}
+- Brain regions affected: Based on {tumor_locations}{key_slices_info}"""
 
 Provide a focused analysis covering:
 

@@ -12,9 +12,12 @@ import time
 
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 
-from model import Predict
+from model import Predict, analyze_tumor_prediction
 from ai_report import BrainTumorAnalyzer, get_available_models
 from pdf_report_generator import MedicalReportGenerator
+from theme_manager import get_theme_manager
+from clinical_form import get_clinical_form
+from clinical_models import get_clinical_predictor
 
 st.set_page_config(
     page_title="Brain Tumor Segmentation AI", 
@@ -22,39 +25,39 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<style>
-    .main .block-container {
-        padding-top: 2rem;
-        max-width: 95%;
-    }
-    .stSlider > div > div > div > div {
-        background: linear-gradient(90deg, #f0f2f6 0%, #4F8BF9 50%, #f0f2f6 100%);
-    }
-    .stMetric {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        border-radius: 0.5rem;
-        padding: 1rem;
-    }
-    div[data-testid="metric-container"] {
-        background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .plotly-graph-div {
-        border-radius: 8px;
-        border: 1px solid #e1e5e9;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Initialize session state first (before any components that use it)
+# Initialize session state for segmentation
+if 'segmentation_done' not in st.session_state:
+    st.session_state.segmentation_done = False
+if 'mri_volume' not in st.session_state:
+    st.session_state.mri_volume = None
+if 'pred_mask' not in st.session_state:
+    st.session_state.pred_mask = None
+if 'img_affine' not in st.session_state:
+    st.session_state.img_affine = None
+if 'voxel_spacing' not in st.session_state:
+    st.session_state.voxel_spacing = None
+if 'analysis_done' not in st.session_state:
+    st.session_state.analysis_done = False
 
-st.title("🧠 Brain Tumor Segmentation AI")
-st.markdown("**Advanced AI-powered brain tumor detection and analysis platform**")
-st.caption("Upload FLAIR NIfTI files for precise tumor segmentation with detailed medical insights")
+# Initialize session state for clinical workflow
+if 'tumor_analysis' not in st.session_state:
+    st.session_state.tumor_analysis = None
+if 'show_clinical_form' not in st.session_state:
+    st.session_state.show_clinical_form = False
+if 'clinical_form_data' not in st.session_state:
+    st.session_state.clinical_form_data = {}
+if 'form_submitted' not in st.session_state:
+    st.session_state.form_submitted = False
+if 'clinical_predictions' not in st.session_state:
+    st.session_state.clinical_predictions = None
+
+# Initialize theme manager and apply styling
+theme_manager = get_theme_manager()
+theme_manager.apply_theme()
+
+# Render modern header
+theme_manager.render_header()
 
 @st.cache_data(show_spinner=False)
 def _normalize_slice(img2d: np.ndarray) -> np.ndarray:
@@ -238,23 +241,124 @@ def _compute_metrics(pred: np.ndarray, voxel_spacing: Tuple[float, float, float]
         out["mask_volume_mL"] = out["mask_volume_mm3"] / 1000.0
     return out
 
-if 'segmentation_done' not in st.session_state:
-    st.session_state.segmentation_done = False
-if 'mri_volume' not in st.session_state:
-    st.session_state.mri_volume = None
-if 'pred_mask' not in st.session_state:
-    st.session_state.pred_mask = None
-if 'img_affine' not in st.session_state:
-    st.session_state.img_affine = None
-if 'voxel_spacing' not in st.session_state:
-    st.session_state.voxel_spacing = None
-if 'analysis_done' not in st.session_state:
-    st.session_state.analysis_done = False
+@st.cache_data(show_spinner=False)
+def _identify_key_slices(mri: np.ndarray, pred_mask: np.ndarray, num_slices: int = 4) -> dict:
+    """
+    Identify the most diagnostically important slices with highest tumor content.
+    Returns dict with key slices for each axis and their tumor content.
+    """
+    key_slices = {
+        'axial': [],
+        'coronal': [],
+        'sagittal': []
+    }
+
+    axes_info = {
+        'axial': {'axis': 2, 'shape_idx': 2},
+        'coronal': {'axis': 1, 'shape_idx': 1},
+        'sagittal': {'axis': 0, 'shape_idx': 0}
+    }
+
+    for axis_name, info in axes_info.items():
+        max_slice = mri.shape[info['shape_idx']] - 1
+
+        tumor_content = []
+        for slice_idx in range(max_slice + 1):
+            if axis_name == 'axial':
+                slice_mask = pred_mask[:, :, slice_idx]
+            elif axis_name == 'coronal':
+                slice_mask = pred_mask[:, slice_idx, :]
+            else:
+                slice_mask = pred_mask[slice_idx, :, :]
+
+            tumor_pixels = int(slice_mask.sum())
+            total_pixels = int(slice_mask.size)
+            tumor_percentage = (tumor_pixels / max(1, total_pixels)) * 100
+
+            tumor_content.append({
+                'slice_idx': slice_idx,
+                'tumor_pixels': tumor_pixels,
+                'tumor_percentage': tumor_percentage,
+                'total_pixels': total_pixels
+            })
+
+        tumor_content.sort(key=lambda x: x['tumor_pixels'], reverse=True)
+
+        # Choose slices: prioritize the single best from each axis, then fill remaining by overall tumor content
+        if tumor_content and tumor_content[0]['tumor_pixels'] > 0:
+            best = tumor_content[0].copy()
+            best['axis'] = axis_name
+            best['max_slice'] = max_slice
+            best['diagnostic_value'] = f"Maximum tumor cross-section ({best['tumor_percentage']:.1f}% of slice)"
+            key_slices[axis_name].append(best)
+
+    # Flatten and fill remaining slots by global ranking across all slices if needed
+    all_candidates = []
+    for axis_name, info in axes_info.items():
+        max_slice = mri.shape[info['shape_idx']] - 1
+        for slice_idx in range(max_slice + 1):
+            if axis_name == 'axial':
+                slice_mask = pred_mask[:, :, slice_idx]
+            elif axis_name == 'coronal':
+                slice_mask = pred_mask[:, slice_idx, :]
+            else:
+                slice_mask = pred_mask[slice_idx, :, :]
+            tumor_pixels = int(slice_mask.sum())
+            total_pixels = int(slice_mask.size)
+            tumor_percentage = (tumor_pixels / max(1, total_pixels)) * 100
+            all_candidates.append({
+                'axis': axis_name,
+                'slice_idx': slice_idx,
+                'tumor_pixels': tumor_pixels,
+                'tumor_percentage': tumor_percentage,
+                'max_slice': max_slice,
+                'diagnostic_value': f"High tumor burden ({tumor_percentage:.1f}% of slice)"
+            })
+
+    all_candidates.sort(key=lambda x: x['tumor_pixels'], reverse=True)
+
+    # Start with the best per-axis, then add top remaining unique slices until num_slices reached
+    selected = []
+    for axis in ['axial', 'coronal', 'sagittal']:
+        if key_slices[axis]:
+            selected.append(key_slices[axis][0])
+
+    for c in all_candidates:
+        if len(selected) >= num_slices:
+            break
+        if c['tumor_pixels'] == 0:
+            continue
+        if not any((s['axis'] == c['axis'] and s['slice_idx'] == c['slice_idx']) for s in selected):
+            selected.append(c)
+
+    # Organize by axis again for convenience
+    out_by_axis = {'axial': [], 'coronal': [], 'sagittal': []}
+    for s in selected:
+        out_by_axis[s['axis']].append(s)
+
+    return {
+        'by_axis': out_by_axis,
+        'top_slices': selected,
+        'summary': {
+            'total_key_slices': len(selected),
+            'max_tumor_pixels': selected[0]['tumor_pixels'] if selected else 0,
+            'axes_represented': list(sorted(set([s['axis'] for s in selected])))
+        }
+    }
+
+# Session state already initialized above
 
 with st.sidebar:
     st.header("🔧 Control Panel")
+    
+    # Theme selector
+    theme_manager.get_theme_selector()
+    st.markdown("---")
+    
+    # File upload
     uploaded = st.file_uploader("Upload FLAIR NIfTI (.nii/.nii.gz)", type=["nii", "nii.gz"])
     
+    # Model selection
     available_models = get_available_models()
     if available_models:
         selected_model = st.selectbox("AI Analysis Model", available_models, index=0)
@@ -262,7 +366,8 @@ with st.sidebar:
         selected_model = "llama3:latest"
         st.warning("⚠️ Ollama not running or no models found")
     
-    run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
+    # Main action buttons
+    run_button = st.button("🚀 Run Segmentation Analysis", type="primary", use_container_width=True)
     
     if st.button("🗑️ Clear All", use_container_width=True):
         for key in list(st.session_state.keys()):
@@ -270,9 +375,17 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
-    st.subheader("⚙️ Visualization")
+    st.subheader("⚙️ Settings")
     scale_3d = st.slider("3D Resolution", 0.1, 0.6, value=0.25, step=0.05)
     auto_generate_report = st.checkbox("Auto-generate AI report", value=True)
+    
+    # Clinical workflow toggle
+    if st.session_state.segmentation_done and st.session_state.get('tumor_analysis', {}).get('tumor_detected'):
+        st.markdown("---")
+        st.subheader("🎨 Clinical Analysis")
+        if st.button("📝 Show Clinical Form", use_container_width=True):
+            st.session_state.show_clinical_form = True
+            st.rerun()
 
 if uploaded and run_button:
     progress_container = st.container()
@@ -314,6 +427,10 @@ if uploaded and run_button:
         st.session_state.img_affine = img.affine
         st.session_state.segmentation_done = True
         
+        # Analyze tumor characteristics
+        tumor_analysis = analyze_tumor_prediction(mri, st.session_state.pred_mask)
+        st.session_state.tumor_analysis = tumor_analysis
+        
         hdr = img.header
         try:
             zooms = hdr.get_zooms()
@@ -343,12 +460,21 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
     voxel_spacing = st.session_state.voxel_spacing
     
     metrics = _compute_metrics(pred_mask, voxel_spacing)
+
+    # Compute and store key slices (most tumor content) for use across tabs and reports
+    key_slices = _identify_key_slices(mri_volume, pred_mask, num_slices=4)
+    st.session_state.key_slices = key_slices
     
-    st.success("🎯 Segmentation Analysis Complete")
+    tumor_analysis = st.session_state.tumor_analysis
+    
+    if tumor_analysis and tumor_analysis.get('tumor_detected'):
+        st.success(f"🎯 Tumor Detected in {tumor_analysis.get('tumor_location', 'Unknown')} Region")
+    else:
+        st.info("✅ No Tumor Detected - Brain Appears Normal")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("🧮 Tumor Voxels", f"{metrics['mask_voxels']:,}")
+        st.metric("🧠 Tumor Voxels", f"{metrics['mask_voxels']:,}")
     with col2:
         st.metric("📊 Brain Coverage", f"{metrics['mask_fraction']*100:.2f}%")
     with col3:
@@ -357,12 +483,24 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
         else:
             st.metric("💧 Volume", "Unknown")
     with col4:
-        tumor_detected = "Yes" if metrics['mask_voxels'] > 0 else "No"
-        st.metric("🎯 Tumor Detected", tumor_detected)
+        if tumor_analysis and tumor_analysis.get('tumor_detected'):
+            st.metric("🎯 Tumor Location", tumor_analysis.get('tumor_location', 'Unknown'))
+        else:
+            st.metric("🎯 Status", "Normal")
     
     st.markdown("---")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📱 2D Slices", "🌐 3D Interactive", "📋 AI Report", "💾 Export"])
+    # Conditionally show clinical tab based on tumor detection
+    if tumor_analysis and tumor_analysis.get('tumor_detected'):
+        tab1, tab_key, tab2, tab_clinical, tab3, tab4 = st.tabs([
+            "📱 2D Slices", "⭐ Key Slices", "🌐 3D Interactive", 
+            "🧬 Clinical Analysis", "📋 AI Report", "💾 Export"
+        ])
+    else:
+        tab1, tab_key, tab2, tab3, tab4 = st.tabs([
+            "📱 2D Slices", "⭐ Key Slices", "🌐 3D Interactive", 
+            "📋 AI Report", "💾 Export"
+        ])
     
     with tab1:
         st.subheader("🔍 Multi-Planar Brain Slice Viewer")
@@ -382,6 +520,52 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
             st.markdown("##### Sagittal View")
             create_plotly_slice_viewer(mri_volume, pred_mask, "sagittal", "tab1")
     
+    with tab_key:
+        st.subheader("Key Slices (Highest Tumor Burden)")
+        st.caption("These slices are automatically selected based on maximum tumor content and will be used in the report")
+
+        if key_slices['top_slices']:
+            cols = st.columns(2)
+            for i, s in enumerate(key_slices['top_slices']):
+                with cols[i % 2]:
+                    axis = s['axis']
+                    idx = s['slice_idx']
+                    if axis == 'axial':
+                        img2d = _normalize_slice(mri_volume[:, :, idx].T)
+                        mask2d = pred_mask[:, :, idx].T
+                        title = f"Axial - Slice {idx}/{s['max_slice']}"
+                    elif axis == 'coronal':
+                        img2d = _normalize_slice(mri_volume[:, idx, :].T)
+                        mask2d = pred_mask[:, idx, :].T
+                        title = f"Coronal - Slice {idx}/{s['max_slice']}"
+                    else:
+                        img2d = _normalize_slice(mri_volume[idx, :, :].T)
+                        mask2d = pred_mask[idx, :, :].T
+                        title = f"Sagittal - Slice {idx}/{s['max_slice']}"
+
+                    height, width = img2d.shape
+                    max_dim = max(height, width)
+                    img_square = np.zeros((max_dim, max_dim))
+                    mask_square = np.zeros((max_dim, max_dim))
+                    h_start = (max_dim - height) // 2
+                    w_start = (max_dim - width) // 2
+                    img_square[h_start:h_start+height, w_start:w_start+width] = img2d
+                    mask_square[h_start:h_start+height, w_start:w_start+width] = mask2d
+
+                    fig = go.Figure()
+                    fig.add_trace(go.Heatmap(z=img_square, colorscale='gray', showscale=False))
+                    if mask2d is not None and mask2d.sum() > 0:
+                        mask_overlay = np.where(mask_square > 0, mask_square, np.nan)
+                        fig.add_trace(go.Heatmap(z=mask_overlay,
+                                                 colorscale=[[0, 'rgba(255,0,0,0)'], [1, 'rgba(255,100,100,0.7)']],
+                                                 showscale=False))
+                    fig.update_layout(title=f"{title}<br><sup>{s['diagnostic_value']}</sup>",
+                                      xaxis=dict(showticklabels=False), yaxis=dict(showticklabels=False),
+                                      margin=dict(l=10, r=10, t=60, b=10), height=350)
+                    st.plotly_chart(fig, use_container_width=True, key=f"keyslice_{axis}_{idx}")
+        else:
+            st.info("No tumor detected; key slices are not available.")
+
     with tab2:
         st.subheader("3D Volume Rendering")
         if 'plotly_3d_fig' not in st.session_state or st.button("🔄 Regenerate 3D"):
@@ -390,7 +574,31 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
         
         st.plotly_chart(st.session_state.plotly_3d_fig, use_container_width=True)
     
-    with tab3:
+    # Clinical Analysis Tab (only shown when tumor is detected)
+    if tumor_analysis and tumor_analysis.get('tumor_detected'):
+        with tab_clinical:
+            st.subheader("🧬 Clinical Analysis & Predictions")
+            st.caption("Complete the clinical information form to get AI-powered tumor type and growth rate predictions")
+            
+            # Get clinical form instance
+            clinical_form = get_clinical_form()
+            
+            # Show the clinical form
+            form_submitted = clinical_form.render_form(tumor_analysis)
+            
+            # Show predictions if form was submitted
+            if st.session_state.get('form_submitted') or st.session_state.get('clinical_predictions'):
+                st.markdown("---")
+                clinical_form.render_predictions()
+                
+                # Reset button
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col2:
+                    if st.button("🔄 Reset Clinical Form", use_container_width=True):
+                        clinical_form.reset_form()
+    
+    # AI Report Tab
+    with tab3 if not (tumor_analysis and tumor_analysis.get('tumor_detected')) else tab3:
         st.subheader("AI Medical Analysis Report")
         
         if auto_generate_report and not st.session_state.analysis_done:
@@ -400,7 +608,7 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
             report_text = ""
             
             with st.spinner("Generating AI analysis..."):
-                for chunk in analyzer.analyze_prediction(metrics, mri_volume.shape, pred_mask):
+                for chunk in analyzer.analyze_prediction(metrics, mri_volume.shape, pred_mask, key_slices=st.session_state.get('key_slices', None)):
                     report_text += chunk
                     report_container.markdown(report_text + "▌")
                 
@@ -418,14 +626,15 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
             report_text = ""
             
             with st.spinner("Generating new AI analysis..."):
-                for chunk in analyzer.analyze_prediction(metrics, mri_volume.shape, pred_mask):
+                for chunk in analyzer.analyze_prediction(metrics, mri_volume.shape, pred_mask, key_slices=st.session_state.get('key_slices', None)):
                     report_text += chunk
                     report_container.markdown(report_text + "▌")
                 
                 report_container.markdown(report_text)
                 st.session_state.ai_report = report_text
     
-    with tab4:
+    # Export Tab
+    with tab4 if not (tumor_analysis and tumor_analysis.get('tumor_detected')) else tab4:
         st.subheader("📋 Export Results")
         st.caption("Download segmentation masks, AI reports, and professional PDF reports")
         
@@ -485,7 +694,7 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
                     
                     try:
                         pdf_path = report_generator.generate_pdf_report(
-                            mri_volume, pred_mask, metrics
+                            mri_volume, pred_mask, metrics, recommended_slices=st.session_state.get('key_slices', None)
                         )
                         
                         with open(pdf_path, 'rb') as pdf_file:
@@ -521,17 +730,7 @@ if st.session_state.segmentation_done and st.session_state.mri_volume is not Non
                 st.info("💡 PDF includes AI-selected diagnostic slices, detailed medical analysis, and technical summary")
 
 else:
-    st.info("🚀 Upload a FLAIR NIfTI file and click 'Run Analysis' to begin AI-powered brain tumor segmentation and analysis.")
-    
-    st.markdown("### 🔥 Features")
-    st.markdown("""
-    - **Smooth Interactive Sliders**: Navigate through brain slices with fluid Plotly controls
-    - **AI-Powered Analysis**: Get detailed medical reports generated by local LLM models
-    - **Real-time Streaming**: Watch AI analysis generate live without waiting
-    - **3D Interactive Visualization**: Explore tumor segmentation in full 3D
-    - **Multi-planar Views**: Axial, coronal, and sagittal slice navigation
-    - **Export Capabilities**: Download masks and AI reports
-    """)
+    st.info("🚀 Upload a FLAIR NIfTI file and click 'Run Segmentation Analysis' to begin AI-powered brain tumor analysis.")
 
 st.markdown("---")
-st.caption("Powered by 3D U-Net AI model and local Ollama LLMs • Made with ❤️ and Streamlit")
+st.caption("🧠 Powered by 3D U-Net AI • Made with ❤️ and Streamlit")

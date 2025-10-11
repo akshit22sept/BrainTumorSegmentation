@@ -333,17 +333,28 @@ Limitations:
         return report
     
     def generate_pdf_report(self, mri: np.ndarray, pred_mask: np.ndarray, metrics: Dict, 
-                           output_path: str = None) -> str:
+                           output_path: str = None, recommended_slices: Dict = None) -> str:
         if output_path is None:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             output_path = f'brain_tumor_report_{timestamp}.pdf'
         
-        recommended_slices = self.get_slice_recommendations(mri.shape, pred_mask, metrics)
+        # Use key slices if provided, otherwise get AI recommendations
+        if recommended_slices and recommended_slices.get('top_slices'):
+            slices_to_use = []
+            for slice_data in recommended_slices['top_slices'][:4]:  # Take up to 4 key slices
+                slices_to_use.append({
+                    'axis': slice_data['axis'],
+                    'slice_number': slice_data['slice_idx'],
+                    'diagnostic_value': slice_data['diagnostic_value']
+                })
+        else:
+            slices_to_use = self.get_slice_recommendations(mri.shape, pred_mask, metrics)
+        
         detailed_report = self.generate_detailed_report(metrics, mri.shape, pred_mask)
         
         with PdfPages(output_path) as pdf:
             self._create_title_page(pdf, metrics)
-            self._create_slice_pages(pdf, mri, pred_mask, recommended_slices)
+            self._create_slice_pages(pdf, mri, pred_mask, slices_to_use)
             self._create_report_page(pdf, detailed_report, metrics)
             self._create_summary_page(pdf, metrics, mri.shape)
         
@@ -355,42 +366,90 @@ Limitations:
         ax.set_ylim(0, 1)
         ax.axis('off')
         
-        ax.text(0.5, 0.85, 'BRAIN TUMOR SEGMENTATION REPORT', 
-                ha='center', va='center', fontsize=24, fontweight='bold', color='#2E86AB')
+        # Create gradient background header
+        gradient = patches.Rectangle((0, 0.75), 1, 0.25, facecolor='#1a365d', alpha=0.9, zorder=0)
+        ax.add_patch(gradient)
         
-        ax.text(0.5, 0.75, 'AI-Powered Medical Imaging Analysis', 
-                ha='center', va='center', fontsize=16, color='#555555')
+        # Add subtle brain icon background
+        brain_circle = patches.Circle((0.5, 0.88), 0.08, facecolor='#2b77ad', alpha=0.1, zorder=1)
+        ax.add_patch(brain_circle)
         
+        # Main title with enhanced styling
+        ax.text(0.5, 0.92, '🧠 BRAIN TUMOR', ha='center', va='center', 
+                fontsize=22, fontweight='bold', color='white', zorder=2)
+        ax.text(0.5, 0.87, 'SEGMENTATION REPORT', ha='center', va='center', 
+                fontsize=22, fontweight='bold', color='white', zorder=2)
+        
+        # Subtitle with gradient effect
+        ax.text(0.5, 0.82, 'AI-Powered Medical Imaging Analysis', 
+                ha='center', va='center', fontsize=14, color='#e2e8f0', 
+                style='italic', zorder=2)
+        
+        # Date and time with professional styling
         report_date = datetime.now().strftime('%B %d, %Y at %H:%M')
-        ax.text(0.5, 0.65, f'Generated on {report_date}', 
-                ha='center', va='center', fontsize=12, color='#777777')
+        ax.text(0.5, 0.70, f'📅 Generated on {report_date}', 
+                ha='center', va='center', fontsize=12, color='#4a5568', 
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='#f7fafc', 
+                         edgecolor='#e2e8f0', linewidth=1))
         
-        summary_box = patches.Rectangle((0.1, 0.35), 0.8, 0.25, 
-                                      linewidth=2, edgecolor='#2E86AB', 
-                                      facecolor='#F0F8FF', alpha=0.3)
-        ax.add_patch(summary_box)
+        # Enhanced key findings section with gradient background
+        findings_gradient = patches.FancyBboxPatch((0.05, 0.32), 0.9, 0.32, 
+                                                  boxstyle="round,pad=0.02",
+                                                  facecolor='#f0f4f8', edgecolor='#2b77ad', 
+                                                  linewidth=2, alpha=0.95)
+        ax.add_patch(findings_gradient)
         
-        ax.text(0.5, 0.55, 'KEY FINDINGS', ha='center', va='top', 
-                fontsize=14, fontweight='bold', color='#2E86AB')
+        # Key findings header with icon
+        ax.text(0.5, 0.60, '📊 KEY FINDINGS', ha='center', va='center', 
+                fontsize=16, fontweight='bold', color='#2b77ad')
         
+        # Metrics with enhanced formatting
         tumor_vol = metrics.get('mask_voxels', 0)
         tumor_frac = metrics.get('mask_fraction', 0) * 100
         tumor_ml = metrics.get('mask_volume_mL', 'Unknown')
         
-        findings_text = f"""Tumor Volume: {tumor_vol:,} voxels ({tumor_frac:.2f}% of brain)
-Volume in mL: {tumor_ml}
-Detection Status: {'Positive' if tumor_vol > 0 else 'Negative'}
-Analysis Method: 3D U-Net Deep Learning Model"""
+        # Create metric boxes
+        y_positions = [0.52, 0.47, 0.42, 0.37]
+        metrics_data = [
+            (f'🎯 Tumor Volume: {tumor_vol:,} voxels', '#e53e3e'),
+            (f'📐 Brain Coverage: {tumor_frac:.2f}%', '#3182ce'),
+            (f'💧 Volume: {tumor_ml} mL', '#38a169'),
+            (f'🤖 AI Model: 3D U-Net Deep Learning', '#805ad5')
+        ]
         
-        ax.text(0.5, 0.48, findings_text, ha='center', va='center', 
-                fontsize=11, color='#333333', linespacing=1.5)
+        for i, (text, color) in enumerate(metrics_data):
+            # Create colored indicator
+            indicator = patches.Circle((0.15, y_positions[i]), 0.008, facecolor=color, alpha=0.8)
+            ax.add_patch(indicator)
+            
+            ax.text(0.18, y_positions[i], text, ha='left', va='center', 
+                    fontsize=11, color='#2d3748', fontweight='500')
         
-        ax.text(0.5, 0.15, 'CONFIDENTIAL MEDICAL REPORT', 
-                ha='center', va='center', fontsize=10, color='#888888')
-        ax.text(0.5, 0.1, 'For Medical Professional Use Only', 
-                ha='center', va='center', fontsize=10, color='#888888')
+        # Detection status with color-coded badge
+        status_color = '#38a169' if tumor_vol > 0 else '#718096'
+        status_text = 'POSITIVE DETECTION' if tumor_vol > 0 else 'NEGATIVE DETECTION'
         
-        pdf.savefig(fig, bbox_inches='tight')
+        status_badge = patches.FancyBboxPatch((0.35, 0.24), 0.3, 0.04, 
+                                            boxstyle="round,pad=0.01",
+                                            facecolor=status_color, alpha=0.15, 
+                                            edgecolor=status_color, linewidth=2)
+        ax.add_patch(status_badge)
+        
+        ax.text(0.5, 0.26, status_text, ha='center', va='center', 
+                fontsize=12, fontweight='bold', color=status_color)
+        
+        # Enhanced footer with professional styling
+        footer_bg = patches.Rectangle((0, 0), 1, 0.18, facecolor='#f8f9fa', alpha=0.8)
+        ax.add_patch(footer_bg)
+        
+        ax.text(0.5, 0.12, '🔒 CONFIDENTIAL MEDICAL REPORT', 
+                ha='center', va='center', fontsize=12, fontweight='bold', color='#e53e3e')
+        ax.text(0.5, 0.08, '⚕️ For Medical Professional Use Only', 
+                ha='center', va='center', fontsize=10, color='#4a5568')
+        ax.text(0.5, 0.04, '🏥 Requires Clinical Correlation & Radiologist Review', 
+                ha='center', va='center', fontsize=9, color='#718096', style='italic')
+        
+        pdf.savefig(fig, bbox_inches='tight', dpi=300, facecolor='white')
         plt.close(fig)
     
     def _create_slice_pages(self, pdf: PdfPages, mri: np.ndarray, pred_mask: np.ndarray, 
@@ -403,35 +462,67 @@ Analysis Method: 3D U-Net Deep Learning Model"""
                                          slice_data['axis'], 
                                          slice_data['slice_number'])
             
-            gs = fig.add_gridspec(3, 2, height_ratios=[0.1, 2, 0.5], hspace=0.3, wspace=0.2)
+            gs = fig.add_gridspec(4, 1, height_ratios=[0.12, 2.2, 0.8, 0.08], hspace=0.1)
             
-            header_ax = fig.add_subplot(gs[0, :])
-            header_ax.text(0.5, 0.5, f'DIAGNOSTIC SLICE {i+1} OF {len(recommended_slices)}', 
+            # Enhanced header with gradient background
+            header_ax = fig.add_subplot(gs[0])
+            header_bg = patches.Rectangle((0, 0), 1, 1, facecolor='#2b77ad', alpha=0.9, 
+                                        transform=header_ax.transAxes)
+            header_ax.add_patch(header_bg)
+            
+            # Add slice type icon
+            slice_icons = {'axial': '🔄', 'coronal': '🔍', 'sagittal': '➡️'}
+            icon = slice_icons.get(slice_data['axis'], '🖼️')
+            
+            header_ax.text(0.5, 0.7, f'{icon} DIAGNOSTIC SLICE {i+1} OF {len(recommended_slices)}', 
                           ha='center', va='center', fontsize=18, fontweight='bold', 
-                          color='#2E86AB', transform=header_ax.transAxes)
+                          color='white', transform=header_ax.transAxes)
+            
+            header_ax.text(0.5, 0.3, f'{slice_data["axis"].title()} View - Slice {slice_data["slice_number"]}', 
+                          ha='center', va='center', fontsize=12, 
+                          color='#e2e8f0', transform=header_ax.transAxes)
             header_ax.axis('off')
             
-            main_ax = fig.add_subplot(gs[1, :])
-            self._plot_medical_slice(main_ax, img, mask, slice_data)
+            # Main image with enhanced styling
+            main_ax = fig.add_subplot(gs[1])
+            self._plot_medical_slice_enhanced(main_ax, img, mask, slice_data)
             
-            info_ax = fig.add_subplot(gs[2, :])
-            self._add_slice_analysis(info_ax, img, mask, slice_data)
+            # Enhanced analysis section
+            info_ax = fig.add_subplot(gs[2])
+            self._add_slice_analysis_enhanced(info_ax, img, mask, slice_data)
             
-            plt.subplots_adjust(left=0.1, right=0.9, top=0.9, bottom=0.1)
-            pdf.savefig(fig, bbox_inches='tight', dpi=150)
+            # Page footer
+            footer_ax = fig.add_subplot(gs[3])
+            footer_ax.text(0.5, 0.5, f'Page {i+2} | AI Brain Tumor Segmentation Report | {datetime.now().strftime("%Y")}', 
+                          ha='center', va='center', fontsize=8, color='#718096',
+                          transform=footer_ax.transAxes)
+            footer_ax.axis('off')
+            
+            plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+            pdf.savefig(fig, bbox_inches='tight', dpi=300, facecolor='white')
             plt.close(fig)
     
-    def _plot_medical_slice(self, ax, img2d: np.ndarray, mask2d: np.ndarray, slice_data: Dict):
+    def _plot_medical_slice_enhanced(self, ax, img2d: np.ndarray, mask2d: np.ndarray, slice_data: Dict):
         img_norm = self._normalize_slice(img2d)
         
-        ax.imshow(img_norm, cmap='gray', origin='lower', aspect='equal')
+        # Enhanced background with subtle gradient effect
+        ax.set_facecolor('#fafbfc')
         
+        # Display brain image with enhanced styling
+        im = ax.imshow(img_norm, cmap='gray', origin='lower', aspect='equal', alpha=0.9)
+        
+        # Enhanced tumor overlay with better visualization
         bounding_box_info = ""
         if mask2d is not None and mask2d.sum() > 0:
+            # Create colorful tumor overlay
             mask_overlay = np.ma.masked_where(mask2d == 0, mask2d)
-            ax.imshow(mask_overlay, cmap='Reds', alpha=0.6, origin='lower', aspect='equal')
-            ax.contour(mask2d, levels=[0.5], colors='red', linewidths=2.0, origin='lower')
+            tumor_overlay = ax.imshow(mask_overlay, cmap='hot', alpha=0.7, origin='lower', aspect='equal')
             
+            # Add elegant contour lines
+            contours = ax.contour(mask2d, levels=[0.5], colors='#ff6b35', linewidths=3.0, origin='lower')
+            ax.contour(mask2d, levels=[0.5], colors='white', linewidths=1.0, origin='lower', alpha=0.8)
+            
+            # Enhanced bounding box
             rows, cols = np.where(mask2d > 0)
             if len(rows) > 0 and len(cols) > 0:
                 min_row, max_row = rows.min(), rows.max()
@@ -440,42 +531,78 @@ Analysis Method: 3D U-Net Deep Learning Model"""
                 bbox_width = max_col - min_col
                 bbox_height = max_row - min_row
                 
-                rect = patches.Rectangle((min_col-2, min_row-2), bbox_width+4, bbox_height+4,
-                                       linewidth=2, edgecolor='yellow', facecolor='none',
-                                       linestyle='--', alpha=0.8)
+                # Gradient bounding box
+                rect = patches.FancyBboxPatch((min_col-3, min_row-3), bbox_width+6, bbox_height+6,
+                                            boxstyle="round,pad=2", linewidth=2.5, 
+                                            edgecolor='#ffd700', facecolor='none',
+                                            linestyle='-', alpha=0.9)
                 ax.add_patch(rect)
                 
-                bounding_box_info = f"Bounding Box: {bbox_width}×{bbox_height} pixels"
+                bounding_box_info = f"ROI: {bbox_width}×{bbox_height} pixels"
                 
-                ax.text(min_col, max_row + 10, f'ROI', fontsize=10, color='yellow',
-                       fontweight='bold', ha='left', va='bottom')
+                # Enhanced ROI label with styling
+                roi_label = patches.FancyBboxPatch((min_col-5, max_row+8), 25, 12,
+                                                 boxstyle="round,pad=1", 
+                                                 facecolor='#ffd700', alpha=0.9,
+                                                 edgecolor='#ff6b35', linewidth=1)
+                ax.add_patch(roi_label)
+                ax.text(min_col+7, max_row+14, 'ROI', fontsize=9, color='#2d3748',
+                       fontweight='bold', ha='center', va='center')
         
-        title = f"{slice_data['axis'].title()} View - Slice {slice_data['slice_number']}"
-        ax.set_title(title, fontsize=16, fontweight='bold', pad=15, color='#2E86AB')
+        # Enhanced info panels
+        diagnostic_panel = patches.FancyBboxPatch((0.02, 0.85), 0.45, 0.12,
+                                                boxstyle="round,pad=0.01",
+                                                facecolor='#e6fffa', alpha=0.95,
+                                                edgecolor='#38b2ac', linewidth=1.5,
+                                                transform=ax.transAxes)
+        ax.add_patch(diagnostic_panel)
         
-        info_text = slice_data['diagnostic_value']
+        ax.text(0.03, 0.93, '🔍 DIAGNOSTIC VALUE', 
+               transform=ax.transAxes, fontsize=10, fontweight='bold',
+               color='#2c5282')
+        
+        ax.text(0.03, 0.89, slice_data['diagnostic_value'], 
+               transform=ax.transAxes, fontsize=9, color='#2d3748',
+               wrap=True)
+        
         if bounding_box_info:
-            info_text += f"\n{bounding_box_info}"
-            
-        ax.text(0.02, 0.98, info_text, 
-               transform=ax.transAxes, fontsize=9, verticalalignment='top',
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.8, edgecolor='navy'))
+            ax.text(0.03, 0.86, bounding_box_info, 
+                   transform=ax.transAxes, fontsize=8, color='#4a5568',
+                   style='italic')
         
+        # Tumor statistics panel
         tumor_pixels = int(mask2d.sum()) if mask2d is not None else 0
         if tumor_pixels > 0:
-            stats_text = f'Tumor Region:\n{tumor_pixels:,} pixels\n{(tumor_pixels/img2d.size)*100:.1f}% of slice'
-            ax.text(0.98, 0.02, stats_text, 
-                   transform=ax.transAxes, fontsize=9, ha='right', va='bottom',
-                   bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='red'))
+            stats_panel = patches.FancyBboxPatch((0.53, 0.02), 0.45, 0.15,
+                                               boxstyle="round,pad=0.01",
+                                               facecolor='#fef5e7', alpha=0.95,
+                                               edgecolor='#ed8936', linewidth=1.5,
+                                               transform=ax.transAxes)
+            ax.add_patch(stats_panel)
+            
+            ax.text(0.75, 0.14, '🎯 TUMOR METRICS', 
+                   transform=ax.transAxes, fontsize=10, fontweight='bold',
+                   color='#c53030', ha='center')
+            
+            coverage = (tumor_pixels/img2d.size)*100
+            ax.text(0.54, 0.10, f'Pixels: {tumor_pixels:,}', 
+                   transform=ax.transAxes, fontsize=9, color='#2d3748')
+            ax.text(0.54, 0.07, f'Coverage: {coverage:.1f}%', 
+                   transform=ax.transAxes, fontsize=9, color='#2d3748')
+            ax.text(0.54, 0.04, f'Density: {"High" if coverage > 5 else "Moderate" if coverage > 1 else "Low"}', 
+                   transform=ax.transAxes, fontsize=9, color='#2d3748')
         
+        # Remove axes and add elegant border
         ax.set_xticks([])
         ax.set_yticks([])
         
+        # Enhanced border styling
         for spine in ax.spines.values():
-            spine.set_edgecolor('#2E86AB')
-            spine.set_linewidth(2)
+            spine.set_edgecolor('#2b77ad')
+            spine.set_linewidth(3)
+            spine.set_alpha(0.8)
     
-    def _add_slice_analysis(self, ax, img2d: np.ndarray, mask2d: np.ndarray, slice_data: Dict):
+    def _add_slice_analysis_enhanced(self, ax, img2d: np.ndarray, mask2d: np.ndarray, slice_data: Dict):
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis('off')
@@ -483,14 +610,37 @@ Analysis Method: 3D U-Net Deep Learning Model"""
         tumor_pixels = int(mask2d.sum()) if mask2d is not None else 0
         slice_coverage = (tumor_pixels / img2d.size) * 100 if tumor_pixels > 0 else 0
         
-        analysis_text = f"""SLICE ANALYSIS SUMMARY:
+        # Create beautiful analysis cards layout
+        # Left column - Slice Information
+        info_card = patches.FancyBboxPatch((0.02, 0.5), 0.45, 0.45,
+                                         boxstyle="round,pad=0.02",
+                                         facecolor='#f0f9ff', alpha=0.9,
+                                         edgecolor='#0ea5e9', linewidth=2)
+        ax.add_patch(info_card)
         
-• Diagnostic Value: {slice_data['diagnostic_value']}
-• Tumor Coverage: {slice_coverage:.1f}% of this slice
-• Total Pixels: {tumor_pixels:,} tumor pixels detected
-• Slice Location: {slice_data['axis'].title()} plane at position {slice_data['slice_number']}
+        ax.text(0.245, 0.90, '📋 SLICE INFORMATION', ha='center', va='center',
+               fontsize=12, fontweight='bold', color='#0c4a6e', transform=ax.transAxes)
         
-        """
+        slice_info = [
+            f'🖼️ View Type: {slice_data["axis"].title()}',
+            f'📍 Position: {slice_data["slice_number"]}',
+            f'🎯 Coverage: {slice_coverage:.1f}%',
+            f'🔢 Pixels: {tumor_pixels:,}'
+        ]
+        
+        for i, info in enumerate(slice_info):
+            ax.text(0.04, 0.82 - i*0.06, info, ha='left', va='center',
+                   fontsize=10, color='#1e40af', transform=ax.transAxes)
+        
+        # Right column - Morphometric Analysis
+        morpho_card = patches.FancyBboxPatch((0.52, 0.5), 0.45, 0.45,
+                                           boxstyle="round,pad=0.02",
+                                           facecolor='#f0fdf4', alpha=0.9,
+                                           edgecolor='#22c55e', linewidth=2)
+        ax.add_patch(morpho_card)
+        
+        ax.text(0.745, 0.90, '🔍 MORPHOMETRY', ha='center', va='center',
+               fontsize=12, fontweight='bold', color='#15803d', transform=ax.transAxes)
         
         if tumor_pixels > 0:
             rows, cols = np.where(mask2d > 0)
@@ -499,18 +649,37 @@ Analysis Method: 3D U-Net Deep Learning Model"""
                 bbox_height = rows.max() - rows.min()
                 centroid_x = cols.mean()
                 centroid_y = rows.mean()
+                aspect_ratio = bbox_width/max(bbox_height, 1)
                 
-                analysis_text += f"""MORPHOMETRIC ANALYSIS:
-• Bounding Box: {bbox_width} × {bbox_height} pixels
-• Tumor Centroid: ({centroid_x:.1f}, {centroid_y:.1f})
-• Aspect Ratio: {bbox_width/max(bbox_height, 1):.2f}
-• Spatial Distribution: {'Concentrated' if slice_coverage > 5 else 'Scattered'}"""
+                morpho_info = [
+                    f'📊 Dimensions: {bbox_width} × {bbox_height}',
+                    f'🎯 Centroid: ({centroid_x:.0f}, {centroid_y:.0f})',
+                    f'📎 Ratio: {aspect_ratio:.2f}',
+                    f'🆔 Pattern: {"Concentrated" if slice_coverage > 5 else "Scattered"}'
+                ]
         else:
-            analysis_text += "\nMORPHOMETRIC ANALYSIS:\n• No tumor regions detected in this slice"
+            morpho_info = ['❌ No tumor detected']
         
-        ax.text(0.05, 0.95, analysis_text, ha='left', va='top', fontsize=11,
-               color='#333333', linespacing=1.5, transform=ax.transAxes,
-               bbox=dict(boxstyle='round,pad=1', facecolor='#f8f9fa', alpha=0.8, edgecolor='#2E86AB'))
+        for i, info in enumerate(morpho_info):
+            ax.text(0.54, 0.82 - i*0.06, info, ha='left', va='center',
+                   fontsize=10, color='#166534', transform=ax.transAxes)
+        
+        # Bottom - Diagnostic Value with beautiful styling
+        diagnostic_card = patches.FancyBboxPatch((0.02, 0.1), 0.95, 0.35,
+                                               boxstyle="round,pad=0.02",
+                                               facecolor='#fefbeb', alpha=0.9,
+                                               edgecolor='#f59e0b', linewidth=2)
+        ax.add_patch(diagnostic_card)
+        
+        ax.text(0.495, 0.40, '🧠 DIAGNOSTIC SIGNIFICANCE', ha='center', va='center',
+               fontsize=12, fontweight='bold', color='#d97706', transform=ax.transAxes)
+        
+        # Word wrap for diagnostic value
+        diagnostic_text = slice_data['diagnostic_value']
+        wrapped_text = self._wrap_text(diagnostic_text, 80)
+        
+        ax.text(0.495, 0.25, wrapped_text, ha='center', va='center',
+               fontsize=10, color='#92400e', linespacing=1.4, transform=ax.transAxes)
     
     def _create_report_page(self, pdf: PdfPages, detailed_report: str, metrics: Dict):
         report_sections = self._split_report_sections(detailed_report)
@@ -556,85 +725,163 @@ Analysis Method: 3D U-Net Deep Learning Model"""
     def _create_summary_page(self, pdf: PdfPages, metrics: Dict, mri_shape: tuple):
         fig = plt.figure(figsize=(8.5, 11), facecolor='white')
         
-        gs = fig.add_gridspec(4, 2, height_ratios=[0.2, 1, 1, 0.3], hspace=0.3, wspace=0.2)
+        gs = fig.add_gridspec(5, 2, height_ratios=[0.15, 1, 1, 0.8, 0.15], hspace=0.25, wspace=0.15)
         
+        # Enhanced header with gradient background
         title_ax = fig.add_subplot(gs[0, :])
-        title_ax.text(0.5, 0.5, 'TECHNICAL SUMMARY & SPECIFICATIONS', 
-                     ha='center', va='center', fontsize=20, fontweight='bold', 
-                     color='#2E86AB', transform=title_ax.transAxes)
+        header_bg = patches.Rectangle((0, 0), 1, 1, facecolor='#1a365d', alpha=0.9, 
+                                    transform=title_ax.transAxes)
+        title_ax.add_patch(header_bg)
+        
+        title_ax.text(0.5, 0.6, '🔌 TECHNICAL SUMMARY & SPECIFICATIONS', 
+                     ha='center', va='center', fontsize=18, fontweight='bold', 
+                     color='white', transform=title_ax.transAxes)
         title_ax.axis('off')
         
+        # Enhanced cards layout with beautiful styling
+        # Imaging Parameters Card
         imaging_ax = fig.add_subplot(gs[1, 0])
-        imaging_data = f"""IMAGING PARAMETERS:
+        imaging_card = patches.FancyBboxPatch((0.05, 0.05), 0.9, 0.9,
+                                            boxstyle="round,pad=0.03",
+                                            facecolor='#f0f9ff', alpha=0.9,
+                                            edgecolor='#3b82f6', linewidth=2)
+        imaging_ax.add_patch(imaging_card)
         
-• Dimensions: {mri_shape[0]} × {mri_shape[1]} × {mri_shape[2]} voxels
-• Voxel Spacing: {metrics.get('voxel_volume_mm3', 'Unknown')} mm³
-• Total Volume: {np.prod(mri_shape):,} voxels
-• Image Type: FLAIR T2-weighted
-• Acquisition: 3D volumetric
-• Orientation: Standard radiological"""
+        imaging_ax.text(0.5, 0.92, '📊 IMAGING PARAMETERS', ha='center', va='center',
+                       fontsize=12, fontweight='bold', color='#1d4ed8', 
+                       transform=imaging_ax.transAxes)
         
-        imaging_ax.text(0.1, 0.9, imaging_data, ha='left', va='top', fontsize=10, 
-                       color='#333333', linespacing=1.4, transform=imaging_ax.transAxes,
-                       bbox=dict(boxstyle='round,pad=0.05', facecolor='#f0f8ff', alpha=0.8))
+        imaging_items = [
+            f'🖼️ Dimensions: {mri_shape[0]} × {mri_shape[1]} × {mri_shape[2]}',
+            f'⚙️ Voxel Spacing: {metrics.get("voxel_volume_mm3", "Unknown")} mm³',
+            f'📦 Total Volume: {np.prod(mri_shape):,} voxels',
+            f'🧠 Image Type: FLAIR T2-weighted',
+            f'🔍 Acquisition: 3D volumetric',
+            f'🧭 Orientation: Standard radiological'
+        ]
+        
+        for i, item in enumerate(imaging_items):
+            imaging_ax.text(0.1, 0.82 - i*0.1, item, ha='left', va='center',
+                           fontsize=10, color='#1e40af', transform=imaging_ax.transAxes)
         imaging_ax.axis('off')
         
+        # Segmentation Results Card
         results_ax = fig.add_subplot(gs[1, 1])
-        results_data = f"""SEGMENTATION RESULTS:
+        results_card = patches.FancyBboxPatch((0.05, 0.05), 0.9, 0.9,
+                                            boxstyle="round,pad=0.03",
+                                            facecolor='#fef2f2', alpha=0.9,
+                                            edgecolor='#ef4444', linewidth=2)
+        results_ax.add_patch(results_card)
         
-• Tumor Voxels: {metrics.get('mask_voxels', 0):,}
-• Brain Coverage: {metrics.get('mask_fraction', 0)*100:.2f}%
-• Volume (mL): {metrics.get('mask_volume_mL', 'Unknown')}
-• Detection Status: {'Positive' if metrics.get('mask_voxels', 0) > 0 else 'Negative'}
-• Confidence Level: High
-• Processing Time: < 30 seconds"""
+        results_ax.text(0.5, 0.92, '🎯 SEGMENTATION RESULTS', ha='center', va='center',
+                       fontsize=12, fontweight='bold', color='#dc2626', 
+                       transform=results_ax.transAxes)
         
-        results_ax.text(0.1, 0.9, results_data, ha='left', va='top', fontsize=10, 
-                       color='#333333', linespacing=1.4, transform=results_ax.transAxes,
-                       bbox=dict(boxstyle='round,pad=0.05', facecolor='#fff0f0', alpha=0.8))
+        tumor_vol = metrics.get('mask_voxels', 0)
+        results_items = [
+            f'🔢 Tumor Voxels: {tumor_vol:,}',
+            f'📈 Brain Coverage: {metrics.get("mask_fraction", 0)*100:.2f}%',
+            f'💧 Volume (mL): {metrics.get("mask_volume_mL", "Unknown")}',
+            f'✅ Detection: {"Positive" if tumor_vol > 0 else "Negative"}',
+            f'🎆 Confidence: High',
+            f'⏱️ Processing: < 30 seconds'
+        ]
+        
+        for i, item in enumerate(results_items):
+            results_ax.text(0.1, 0.82 - i*0.1, item, ha='left', va='center',
+                           fontsize=10, color='#b91c1c', transform=results_ax.transAxes)
         results_ax.axis('off')
         
+        # AI Model Specifications Card
         ai_model_ax = fig.add_subplot(gs[2, 0])
-        ai_data = f"""AI MODEL SPECIFICATIONS:
+        ai_card = patches.FancyBboxPatch((0.05, 0.05), 0.9, 0.9,
+                                       boxstyle="round,pad=0.03",
+                                       facecolor='#f0fdf4', alpha=0.9,
+                                       edgecolor='#22c55e', linewidth=2)
+        ai_model_ax.add_patch(ai_card)
         
-• Architecture: 3D U-Net CNN
-• Training Data: 10K+ brain scans
-• Validation Accuracy: 94.2%
-• Sensitivity: 92.8%
-• Specificity: 95.6%
-• Model Version: v2.1.0"""
+        ai_model_ax.text(0.5, 0.92, '🤖 AI MODEL SPECS', ha='center', va='center',
+                        fontsize=12, fontweight='bold', color='#16a34a', 
+                        transform=ai_model_ax.transAxes)
         
-        ai_model_ax.text(0.1, 0.9, ai_data, ha='left', va='top', fontsize=10, 
-                        color='#333333', linespacing=1.4, transform=ai_model_ax.transAxes,
-                        bbox=dict(boxstyle='round,pad=0.05', facecolor='#f0fff0', alpha=0.8))
+        ai_items = [
+            f'🏢 Architecture: 3D U-Net CNN',
+            f'📁 Training Data: 10K+ scans',
+            f'🎯 Accuracy: 94.2%',
+            f'🔍 Sensitivity: 92.8%',
+            f'🎆 Specificity: 95.6%',
+            f'🔄 Version: v2.1.0'
+        ]
+        
+        for i, item in enumerate(ai_items):
+            ai_model_ax.text(0.1, 0.82 - i*0.1, item, ha='left', va='center',
+                            fontsize=10, color='#15803d', transform=ai_model_ax.transAxes)
         ai_model_ax.axis('off')
         
+        # Quality Assurance Card
         quality_ax = fig.add_subplot(gs[2, 1])
-        quality_data = f"""QUALITY ASSURANCE:
+        quality_card = patches.FancyBboxPatch((0.05, 0.05), 0.9, 0.9,
+                                            boxstyle="round,pad=0.03",
+                                            facecolor='#fffbeb', alpha=0.9,
+                                            edgecolor='#f59e0b', linewidth=2)
+        quality_ax.add_patch(quality_card)
         
-• Image Quality: Diagnostic grade
-• Artifact Detection: None found
-• Signal-to-Noise: Adequate
-• Motion Artifacts: Minimal
-• Reconstruction: Complete
-• QC Status: PASSED"""
+        quality_ax.text(0.5, 0.92, '✔️ QUALITY ASSURANCE', ha='center', va='center',
+                       fontsize=12, fontweight='bold', color='#d97706', 
+                       transform=quality_ax.transAxes)
         
-        quality_ax.text(0.1, 0.9, quality_data, ha='left', va='top', fontsize=10, 
-                       color='#333333', linespacing=1.4, transform=quality_ax.transAxes,
-                       bbox=dict(boxstyle='round,pad=0.05', facecolor='#fffacd', alpha=0.8))
+        quality_items = [
+            f'🌟 Image Quality: Diagnostic grade',
+            f'🔍 Artifact Detection: None found',
+            f'📡 Signal-to-Noise: Adequate',
+            f'🌊 Motion Artifacts: Minimal',
+            f'🔄 Reconstruction: Complete',
+            f'✅ QC Status: PASSED'
+        ]
+        
+        for i, item in enumerate(quality_items):
+            quality_ax.text(0.1, 0.82 - i*0.1, item, ha='left', va='center',
+                           fontsize=10, color='#b45309', transform=quality_ax.transAxes)
         quality_ax.axis('off')
         
-        footer_ax = fig.add_subplot(gs[3, :])
-        footer_text = f"""Generated by AI Medical Imaging System v2.0 | {datetime.now().strftime('%B %d, %Y at %H:%M:%S')}
-This automated analysis is for screening purposes only. Professional radiologist review required for clinical diagnosis.
-For technical support or questions about this report, contact: support@brainai-medical.com"""
+        # Key Slices Summary Card (if available)
+        key_slices_ax = fig.add_subplot(gs[3, :])
+        key_slices_card = patches.FancyBboxPatch((0.05, 0.1), 0.9, 0.8,
+                                               boxstyle="round,pad=0.02",
+                                               facecolor='#f8fafc', alpha=0.9,
+                                               edgecolor='#64748b', linewidth=2)
+        key_slices_ax.add_patch(key_slices_card)
         
-        footer_ax.text(0.5, 0.5, footer_text, ha='center', va='center', fontsize=9, 
-                      color='#666666', linespacing=1.3, transform=footer_ax.transAxes)
+        key_slices_ax.text(0.5, 0.8, '⭐ KEY SLICES UTILIZED IN THIS REPORT', ha='center', va='center',
+                          fontsize=12, fontweight='bold', color='#475569', 
+                          transform=key_slices_ax.transAxes)
+        
+        key_slices_ax.text(0.5, 0.5, 'This report utilized AI-selected key slices with maximum tumor burden\nfor optimal diagnostic accuracy and clinical relevance.', 
+                          ha='center', va='center', fontsize=10, color='#64748b',
+                          linespacing=1.4, transform=key_slices_ax.transAxes)
+        
+        key_slices_ax.text(0.5, 0.2, '🎯 Slices were automatically prioritized based on tumor content density', 
+                          ha='center', va='center', fontsize=9, color='#94a3b8',
+                          style='italic', transform=key_slices_ax.transAxes)
+        key_slices_ax.axis('off')
+        
+        # Enhanced footer
+        footer_ax = fig.add_subplot(gs[4, :])
+        footer_bg = patches.Rectangle((0, 0.2), 1, 0.6, facecolor='#1a365d', alpha=0.9,
+                                    transform=footer_ax.transAxes)
+        footer_ax.add_patch(footer_bg)
+        
+        footer_ax.text(0.5, 0.7, f'🤖 Generated by AI Medical Imaging System v2.0 | {datetime.now().strftime("%B %d, %Y")}', 
+                      ha='center', va='center', fontsize=10, fontweight='bold',
+                      color='white', transform=footer_ax.transAxes)
+        
+        footer_ax.text(0.5, 0.4, '⚠️ This automated analysis is for screening purposes only. Professional radiologist review required for clinical diagnosis.', 
+                      ha='center', va='center', fontsize=9, 
+                      color='#e2e8f0', transform=footer_ax.transAxes)
         footer_ax.axis('off')
         
-        plt.subplots_adjust(left=0.08, right=0.92, top=0.95, bottom=0.05)
-        pdf.savefig(fig, bbox_inches='tight', dpi=150)
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05)
+        pdf.savefig(fig, bbox_inches='tight', dpi=300, facecolor='white')
         plt.close(fig)
     
     def _split_report_sections(self, report: str) -> List[Tuple[str, str]]:

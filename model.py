@@ -146,7 +146,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 model = UNet3D(in_channels=1, out_channels=2, base_filters=8, dropout=0.2).to(device)
 
-checkpoint = torch.load("C:\Projects 2\BrainTumorSegmentation\Flairbased_2\model_epoch_45 (1).pt", map_location=device)
+checkpoint = torch.load(r"C:\Projects 2\BrainTumorSegmentation\Flairbased_2\model_epoch_45 (1).pt", map_location=device)
 state_dict = checkpoint["model_state_dict"]
 
 new_state_dict = OrderedDict()
@@ -156,13 +156,83 @@ model.load_state_dict(new_state_dict)
 model.to(device)
 model.eval()
 
+def extract_tumor_location_and_size(pred_mask):
+    """
+    Extract tumor location and size from prediction mask.
+    Returns location (brain region) and size metrics.
+    """
+    if pred_mask.sum() == 0:
+        return None, 0
+    
+    # Calculate tumor center of mass
+    tumor_indices = np.where(pred_mask > 0)
+    if len(tumor_indices[0]) == 0:
+        return None, 0
+    
+    center_x = np.mean(tumor_indices[0])
+    center_y = np.mean(tumor_indices[1])
+    center_z = np.mean(tumor_indices[2])
+    
+    # Map anatomical location based on center coordinates
+    # These are approximate brain region mappings
+    height, width, depth = pred_mask.shape
+    
+    # Normalize coordinates to 0-1 range
+    norm_x = center_x / height
+    norm_y = center_y / width
+    norm_z = center_z / depth
+    
+    # Simple anatomical region mapping (this is a basic approximation)
+    # In a real application, you'd use anatomical atlases
+    if norm_z < 0.3:  # Lower sections
+        if norm_x < 0.4:
+            location = "Temporal"
+        else:
+            location = "Cerebellum"
+    elif norm_z < 0.7:  # Middle sections
+        if norm_y < 0.4:
+            location = "Frontal"
+        elif norm_y > 0.6:
+            location = "Occipital"
+        else:
+            location = "Parietal"
+    else:  # Upper sections
+        location = "Parietal"
+    
+    # Calculate tumor size (volume in voxels)
+    tumor_size = int(pred_mask.sum())
+    
+    return location, tumor_size
+
 def Predict(image):
     flair_norm = (image - image.mean()) / (image.std() + 1e-8)
     input_tensor = torch.from_numpy(flair_norm[None, None].astype(np.float32)).to(device)
 
-    slice_idx = 80
     with torch.no_grad():
         output = model(input_tensor)
         pred = torch.argmax(output, dim=1).squeeze().cpu().numpy()
     return pred
+
+def analyze_tumor_prediction(image, pred_mask):
+    """
+    Comprehensive tumor analysis including detection, location, and size.
+    """
+    tumor_detected = pred_mask.sum() > 0
+    
+    if not tumor_detected:
+        return {
+            'tumor_detected': False,
+            'tumor_location': None,
+            'tumor_size': 0,
+            'brain_tumor_present': 0 
+        }
+    
+    location, size = extract_tumor_location_and_size(pred_mask)
+    
+    return {
+        'tumor_detected': True,
+        'tumor_location': location,
+        'tumor_size': size,
+        'brain_tumor_present': 1  # For H5 model input
+    }
 
