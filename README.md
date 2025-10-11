@@ -2,27 +2,30 @@
 
 Advanced AI-powered brain tumor detection and analysis system with professional medical reporting capabilities.
 
-## Features
+## 🚀 Features
 
 ### Core Functionality
+
 - **3D U-Net AI Model**: State-of-the-art brain tumor segmentation
 - **Multi-Planar Visualization**: Axial, Coronal, and Sagittal slice viewers
 - **Interactive 3D Rendering**: Volume visualization with tumor isosurfaces
 - **Professional PDF Reports**: AI-generated medical analysis with diagnostic images
 
 ### Enhanced User Experience
+
 - **Smooth Plotly Sliders**: Fluid navigation through brain slices
 - **Real-time Processing**: Live data streaming and progress indicators
 - **AI-Powered Analysis**: Local LLM integration using Ollama
 - **Robust Error Handling**: Fallback analysis when services are unavailable
 
 ### Professional Reporting
+
 - **LLM-Selected Diagnostic Slices**: AI chooses most relevant imaging views
 - **Bounding Box Analysis**: Precise tumor location and morphometry
 - **Consistent Page Layout**: Professional medical report formatting
 - **Technical Specifications**: Detailed imaging parameters and QA metrics
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 BrainTumorSegmentation/
@@ -37,109 +40,169 @@ BrainTumorSegmentation/
     └── model_epoch_45 (1).pt
 ```
 
-## Setup & Installation
+## 🛠️ Setup & Installation
 
 ### Prerequisites
-- Python 3.8+
-- CUDA-capable GPU (recommended)
-- Ollama (for AI analysis)
-- Required Python packages (see requirements below)
 
-### Required Packages
-```bash
-pip install streamlit torch torchvision nibabel numpy matplotlib plotly scikit-image requests
+# Brain Tumor Segmentation — Clinical Analysis Platform
+
+Comprehensive research-grade toolkit for FLAIR brain MRI tumor segmentation, visualization, clinical prediction, and professional PDF reporting.
+
+This repository contains a Streamlit app and supporting modules that perform:
+
+- 3D U-Net segmentation of brain tumors from FLAIR volumes
+- Multi-planar 2D slice viewers and interactive 3D rendering (Plotly)
+- AI-powered medical analysis using a local LLM (Ollama) with graceful fallbacks
+- Clinical prediction models (H5) for tumor type and growth-rate (optional)
+- Professional, publication-quality PDF report generation
+
+## Quick links
+
+- Run (web): `streamlit run app.py`
+- CLI: `python main.py`
+- Example data: `BRATS/` (FLAIR volumes)
+
+## What you get
+
+- Interactive web UI (Streamlit) to upload NIfTI files and run segmentation
+- Automatic selection of diagnostic slices and bounding-box ROI analysis
+- Downloadable NIfTI masks, AI analysis text reports, and professional PDF reports
+- Clinical form and H5-based predictions for tumor type/growth (optional)
+
+## Repository layout (key files)
+
+```
+BrainTumorSegmentation/
+├── app.py                    # Main Streamlit application
+├── main.py                   # CLI entrypoint
+├── model.py                  # 3D U-Net model and analysis helpers
+├── ai_report.py              # LLM-backed AI analysis (Ollama integration)
+├── pdf_report_generator.py   # Professional PDF report generator
+├── clinical_form.py          # Clinical form UI and helpers
+├── clinical_models.py        # H5 clinical prediction model wrappers
+├── theme_manager.py          # UI theme manager
+├── Flairbased_2/             # Trained PyTorch model weights (.pt)
+├── models/                   # H5 models used for clinical predictions
+├── BRATS/                    # Example / sample MRI volumes
+├── test_*.py                 # Unit tests
+└── assets/                   # (optional) screenshots and report images
 ```
 
-### Ollama Setup
-1. Install Ollama from https://ollama.ai/
-2. Pull required models:
-```bash
+## Requirements
+
+- Python 3.8+ (3.10/3.11 recommended)
+- Optional GPU with CUDA for faster segmentation (PyTorch)
+
+Core Python packages (install with pip):
+
+```powershell
+pip install -r requirements.txt
+# or, install common dependencies directly
+pip install streamlit torch torchvision nibabel numpy matplotlib plotly scikit-image requests pillow fpdf reportlab
+```
+
+Notes:
+
+- `tensorflow` is optional and required only if you want to run the H5 clinical prediction models in `models/*.h5`.
+- If you plan to use the LLM features, install and run Ollama locally: https://ollama.ai/
+
+## Setup (Ollama for AI analysis)
+
+1. Install Ollama on your machine and run the server (default listens on port 11434).
+2. Pull the LLM(s) you want to use (example):
+
+```powershell
 ollama pull llama3:latest
 ollama pull mistral:latest
 ```
 
-## Usage
+If Ollama is not available the app will automatically use fallback text analysis included in the code.
 
-### Web Interface (Recommended)
-```bash
+## How to run
+
+Web UI (recommended):
+
+```powershell
+cd "d:\BrainTumorSegmentation\BrainTumorSegmentation"
 streamlit run app.py
 ```
-Then visit `http://localhost:8501`
 
-### CLI Interface
-```bash
+Then open http://localhost:8501 in your browser (or the port you chose).
+
+CLI:
+
+```powershell
 python main.py
 ```
 
-## Application Workflow
+## Typical workflow
 
-1. **Upload**: Load FLAIR NIfTI files (.nii/.nii.gz)
-2. **Process**: AI segmentation using 3D U-Net model
-3. **Visualize**: Interactive 2D slices and 3D volume rendering
-4. **Analyze**: AI-powered medical report generation
-5. **Export**: Download masks, reports, and professional PDFs
+1. Upload a FLAIR NIfTI file (.nii or .nii.gz) via the Streamlit sidebar.
+2. Click "Run Segmentation Analysis" to run the 3D U-Net model.
+3. Inspect 2D slice viewers (axial/coronal/sagittal) and the interactive 3D rendering.
+4. Review automatically selected key slices and AI textual analysis.
+5. (Optional) Complete the clinical form to run H5-based predictions for tumor type/growth.
+6. Export segmentation mask (.nii), AI report (.txt), or professional PDF report (.pdf).
 
-## PDF Report Features
+## Models & Data
 
-### AI-Selected Diagnostic Views
-- LLM chooses most relevant slices based on tumor characteristics
-- Automatic bounding box detection and ROI analysis
-- Morphometric measurements and spatial distribution analysis
+- PyTorch segmentation weights are expected at `Flairbased_2/model_epoch_45 (1).pt` (relative path). Update `model.py` if you move the file.
+- Clinical H5 models (optional) are in `models/brain_tumor_type.h5` and `models/brain_tumor_growth.h5`.
 
-### Professional Layout
-- Consistent page sizing (8.5" x 11")
-- Medical-grade typography and formatting
-- Color-coded information boxes
-- Technical specifications and QA metrics
+## Tests
 
-### Report Sections
-1. **Title Page**: Executive summary and key findings
-2. **Diagnostic Slices**: AI-selected views with analysis
-3. **Medical Analysis**: Detailed clinical interpretation
-4. **Technical Summary**: Imaging parameters and model specs
+- Unit tests are included (examples: `test_app_startup.py`, `test_model_loading.py`, `test_clinical_workflow.py`). Run them with:
 
-## Configuration
+```powershell
+python -m pytest -q
+```
 
-### Model Settings
-- Model path: `C:\Projects 2\BrainTumorSegmentation\Flairbased_2\model_epoch_45 (1).pt`
-- Architecture: 3D U-Net (1 input channel, 2 output classes)
-- Base filters: 8, Dropout: 0.2
+## Troubleshooting & tips
 
-### Ollama Integration
-- Default model: `llama3:latest`
-- API endpoint: `http://localhost:11434`
-- Automatic fallback analysis if unavailable
-- Retry logic with timeout handling
+- If the model fails to load on Windows, check backslash escaping in the path inside `model.py` or set an absolute path.
+- If TensorFlow/H5 models are missing, the clinical prediction tab will remain disabled; this is optional.
+- Ollama connection errors fall back to a built-in textual analysis — the app remains usable.
+- For large volumes, lower the 3D resolution slider in the sidebar to speed up the 3D rendering.
 
-## Performance Metrics
+## 📸 Screenshots (images)
 
-- **Model Accuracy**: 94.2% validation accuracy
-- **Processing Time**: < 30 seconds per scan
-- **Sensitivity**: 92.8%
-- **Specificity**: 95.6%
+#### 🏠 Home Page
 
-## Error Handling
+![HomePage](./images/Screenshot%202025-10-11%20172617.png)
 
-The system includes robust error handling:
-- **Connection Timeouts**: Automatic retry with fallback analysis
-- **Model Loading**: Graceful degradation if model unavailable
-- **File Processing**: Comprehensive validation and error messages
-- **Report Generation**: Fallback templates when LLM services fail
+#### 🧠 Brain Segmentation
 
-## Notes
+![HomePage](./images/Screenshot%202025-10-11%20172653.png)
 
-- For clinical use, professional radiologist review is required
-- AI analysis is for screening purposes only
-- Supports FLAIR T2-weighted MRI sequences
-- Minimum system requirements: 8GB RAM, GPU with 4GB VRAM
+#### 🩻 Key Slices
 
-## Key Improvements
+![HomePage](./images/Screenshot%202025-10-11%20172719.png)
 
-### Version 2.0 Features
--  Smooth Plotly-based slice navigation
--  Professional PDF reports with bounding boxes
--  AI-powered slice selection for optimal diagnosis
--  Consistent page layouts without text overlap
--  Real-time data streaming and progress indicators
--  Robust error handling with fallback analysis
--  Clean project organization and documentation
+#### 🧩 3D Visualization
+
+![HomePage](./images/Screenshot%202025-10-11%20172834.png)
+
+#### 🧬 Clinical Analysis
+
+![HomePage](./images/Screenshot%202025-10-11%20172857.png)
+
+#### 📊 Classification Results
+
+![HomePage](./images/Screenshot%202025-10-11%20172953.png)
+
+#### 🤖 AI Report Generation
+
+![HomePage](./images/Screenshot%202025-10-11%20173017.png)
+
+#### 📄 PDF Export for the Report
+
+![HomePage](./images/Screenshot%202025-10-11%20173230.png)
+
+## Contributors & how to contribute
+
+- Fork the repo, create a branch, open a pull request with a clear description.
+- Follow the existing code style and add unit tests for new features.
+
+## Medical disclaimer
+
+This project is research software. AI outputs are experimental and must not be used for clinical decision-making. All findings should be reviewed by qualified medical professionals.
